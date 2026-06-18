@@ -259,30 +259,42 @@ with open('query1 (77).csv') as f:
         crows.append(d)
 
 # ---------------------------------------------------------------- Chart F
-# Top counties by candidate volume (jobseekers), colour = supply tightness
-top_c = sorted(crows, key=lambda r: r['JOBSEEKERS'], reverse=True)[:12]
-top_c = sorted(top_c, key=lambda r: r['JOBSEEKERS'])
-names_f = [r['county'] for r in top_c]
-js_f    = [r['JOBSEEKERS'] for r in top_c]
-jspj    = [r['jobseekers_per_job'] for r in top_c]
-# tight supply (low JS/job) -> magenta, ample -> blue
-cols_f = [MAGENTA if v <= 25 else (A11Y if v <= 35 else BLUE) for v in jspj]
-fig, ax = plt.subplots(figsize=(8.6, 4.6))
-ax.barh(range(len(names_f)), js_f, color=cols_f, zorder=2)
-ax.set_yticks(range(len(names_f))); ax.set_yticklabels(names_f, fontsize=9.4)
-style_ax(ax)
-ax.set_xlabel('Active jobseekers (care roles)', fontsize=10.5)
-ax.grid(axis='x', color=LGREY, linewidth=0.9)
-ax.set_xlim(0, max(js_f)*1.13)
-for i, (v, jp) in enumerate(zip(js_f, jspj)):
-    ax.text(v + max(js_f)*0.01, i, f"{v:,.0f}  ({jp:.0f}/job)", va='center',
-            fontsize=8.4, color='#5A6170')
-# legend
+# ALL 26 counties by candidate volume (jobseekers); colour = supply tightness.
+# Two equal columns (ranks 1-13 and 14-26) sharing one scale for honest comparison.
 from matplotlib.patches import Patch
+def tight_col(v):
+    return MAGENTA if v <= 25 else (A11Y if v <= 35 else BLUE)
+allc = sorted(crows, key=lambda r: r['JOBSEEKERS'], reverse=True)
+half = (len(allc) + 1) // 2          # 13 per column
+groups = [allc[:half], allc[half:]]
+xmax = max(r['JOBSEEKERS'] for r in allc)
+fig, axes = plt.subplots(1, 2, figsize=(9.7, 4.15))
+fig.subplots_adjust(wspace=0.55)
+for ax, grp in zip(axes, groups):
+    g = list(reversed(grp))           # highest at top
+    names = [r['county'] for r in g]
+    js    = [r['JOBSEEKERS'] for r in g]
+    jspj  = [r['jobseekers_per_job'] for r in g]
+    cols  = [tight_col(v) for v in jspj]
+    ax.barh(range(len(g)), js, color=cols, height=0.66, zorder=2)
+    ax.set_yticks(range(len(g)))
+    ax.set_yticklabels(names, fontsize=9.2)
+    style_ax(ax)
+    ax.set_xlim(0, xmax * 1.02)
+    ax.grid(axis='x', color=LGREY, linewidth=0.8)
+    ax.tick_params(axis='x', labelsize=8.5)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, p: f"{int(v/1000)}k" if v else "0"))
+    for i, (v, jp) in enumerate(zip(js, jspj)):
+        ax.text(v + xmax*0.015, i, f"{v:,.0f} \u00b7 {jp:.0f}/job", va='center',
+                fontsize=7.6, color='#4A5160')
+    ax.set_ylim(-0.6, len(g)-0.4)
+axes[0].set_xlabel('Active jobseekers (care roles) \u00b7 seekers per job', fontsize=9.5)
+axes[1].set_xlabel('Active jobseekers (care roles) \u00b7 seekers per job', fontsize=9.5)
 leg = [Patch(color=MAGENTA, label='Tight supply (under 25 seekers/job)'),
-       Patch(color=A11Y, label='Moderate (26\u201335)'),
-       Patch(color=BLUE, label='Ample (over 35)')]
-ax.legend(handles=leg, frameon=False, fontsize=8.6, loc='lower right')
+       Patch(color=A11Y, label='Moderate (26\u201335 seekers/job)'),
+       Patch(color=BLUE, label='Ample (over 35 seekers/job)')]
+fig.legend(handles=leg, frameon=False, fontsize=9, loc='upper center',
+           ncol=3, bbox_to_anchor=(0.5, 1.06))
 save(fig, 'F_county_demand.png')
 
 # ---------------------------------------------------------------- Chart G

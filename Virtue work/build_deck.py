@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Assemble the Virtue market-overview deck on the Indeed corporate template."""
 import os, copy
+import openpyxl
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
@@ -102,6 +103,71 @@ def img_fit(s, path, l, t, maxw, maxh, halign='center', valign='middle'):
     ty = t + (maxh - h) * (0.5 if valign == 'middle' else (1 if valign == 'bottom' else 0))
     return s.shapes.add_picture(path, Inches(lx), Inches(ty), width=Inches(w), height=Inches(h))
 
+# ----------------------------------------------------------------------
+# Editable native-shape "charts" (so competitor names are editable in
+# Google Slides as ordinary text boxes, not baked into an image).
+# ----------------------------------------------------------------------
+_wb = openpyxl.load_workbook(os.path.join(HERE, 'Market Data (1) copy.xlsx'), data_only=True)
+def _load(name):
+    ws = _wb[name]; h = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+    out = []
+    for r in range(2, ws.max_row + 1):
+        d = {h[c - 1]: ws.cell(r, c).value for c in range(1, ws.max_column + 1)}
+        if d['companyid']:
+            out.append(d)
+    return out
+def _num(v):
+    try: return float(v)
+    except: return 0.0
+def _short(c):
+    return c.rsplit('[', 1)[0].strip()
+_cur = _load('Jan to May 2026')
+_virt = [r for r in _cur if 'virtue' in r['companyid'].lower()][0]
+_tops = sorted(_cur, key=lambda r: _num(r['spend_local']), reverse=True)[:12]
+_cd = sorted(_tops + [_virt], key=lambda r: _num(r['spend_local']))   # ascending -> Virtue at bottom
+C_ITEMS = [(_short(r['companyid']), _num(r['spend_local'])/1000, 'virtue' in r['companyid'].lower()) for r in _cd]
+_mkt = sum(_num(r['Tot_Applystarts']) for r in _cur) / sum(_num(r['Clicks']) for r in _cur) * 100
+D_ITEMS = [('Virtue', _num(_virt['Applystart_rate'])*100, 'v')]
+for _k, _lab in [('Comfort Keepers', 'Comfort Keepers'), ('Mowlam', 'Mowlam'), ('Dovida', 'Dovida'),
+                 ('Be Independent', 'Be Independent'), ('Danu Home Care', 'Danu Home Care')]:
+    for r in _cur:
+        if _k.lower() in r['companyid'].lower():
+            D_ITEMS.append((_lab, _num(r['Applystart_rate'])*100, 'c')); break
+D_ITEMS.append(('Market avg', _mkt, 'm'))
+
+def hbar_native(s, x, y, w, h, items, namew, labw, vfmt):
+    n = len(items); rowh = h / n
+    barh = min(rowh*0.6, 0.2)
+    vmax = max(it[1] for it in items)
+    bx = x + namew; bwmax = w - namew - labw
+    rect(s, bx, y, 0.012, h, fill=LGREY)                      # value axis line
+    for i, (name, val, hl) in enumerate(items):
+        cyc = y + h - (i + 0.5)*rowh
+        col = BLUE if hl else GREY
+        txt(s, x, cyc-rowh/2, namew-0.08, rowh,
+            [[(name, 8, (BLUE if hl else DARK), bool(hl))]],
+            align=PP_ALIGN.RIGHT, anchor=MSO_ANCHOR.MIDDLE, line_spacing=0.9, space_after=0)
+        bw = max(bwmax*val/vmax, 0.03)
+        rect(s, bx, cyc-barh/2, bw, barh, fill=col)
+        txt(s, bx+bw+0.06, cyc-rowh/2, labw-0.04, rowh,
+            [[(vfmt(val), 7.6, (BLUE if hl else GREY), bool(hl))]],
+            anchor=MSO_ANCHOR.MIDDLE, space_after=0)
+
+def col_native(s, x, y, w, h, items, vfmt):
+    n = len(items); cs = w / n; cw = cs*0.5
+    vmax = max(it[1] for it in items)*1.16
+    by = y + h
+    rect(s, x, by, w, 0.012, fill=LGREY)                     # category axis line
+    for i, (name, val, kind) in enumerate(items):
+        cx = x + (i + 0.5)*cs
+        bh = h*val/vmax
+        col = BLUE if kind == 'v' else (NAVY if kind == 'm' else GREY)
+        rect(s, cx-cw/2, by-bh, cw, bh, fill=col)
+        txt(s, cx-cs/2, by-bh-0.26, cs, 0.24, [[(vfmt(val), 9, (BLUE if kind == 'v' else DARK), kind == 'v')]],
+            align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.BOTTOM, space_after=0)
+        txt(s, cx-cs/2, by+0.06, cs, 0.5, [[(name, 8.2, (BLUE if kind == 'v' else DARK), kind == 'v')]],
+            align=PP_ALIGN.CENTER, line_spacing=0.92, space_after=0)
+
 def notes(s, talk, perspective, takeaway, question=None):
     tf = s.notes_slide.notes_text_frame
     tf.text = ""
@@ -174,7 +240,7 @@ notes(s,
 s = slide()
 content_header(s, "Executive summary", "Virtue has created a market-differentiating asset \u2014 now it must be activated and proven")
 cards = [
- ("A first-mover benefit", "Virtue is among the first private care providers in Ireland to publicly position paid maternity top-up and health insurance as core to its employee value proposition.", MAGENTA),
+ ("First in Ireland", "Virtue is the first private care home provider in Ireland to offer staff paid maternity benefits and health insurance \u2014 a genuine first-mover position in its category.", MAGENTA),
  ("A market under pressure", "Sector turnover is ~36%, the workforce is ~79% female, and a 50/50 non-EEA hiring rule limits international supply. Domestic attraction and retention are now critical.", BLUE),
  ("Costs are rising fast", "Monthly market spend on Indeed has risen ~4x since early 2024 and cost-per-click has nearly tripled \u2014 competing on spend alone is unsustainable.", ORANGE),
  ("Virtue already converts well", "Virtue's apply-start rate is 31% vs a 21% market average \u2014 the message resonates, but scale is small (5 live roles, 126th on spend).", TEAL),
@@ -256,7 +322,8 @@ divider("02", "Where Virtue stands", "Small in spend, strong in conversion \u201
 # ---- Slide: competitive landscape ----
 s = slide()
 content_header(s, "Competitive landscape", "Virtue is a small spender in a market led by national home-care groups")
-img_fit(s, os.path.join(CH, "C_competitive_spend.png"), M, 1.55, 6.3, 3.5, halign='left')
+hbar_native(s, M, 1.62, 6.35, 3.35, C_ITEMS, namew=1.65, labw=0.62, vfmt=lambda v: f"\u20ac{v:.0f}k")
+txt(s, M+1.65, 5.0, 4.2, 0.22, [[("Spend, Jan\u2013May 2026 (\u20ac000s) \u00b7 editable", 7.5, GREY, False)]])
 bx=7.05
 txt(s, bx, 1.62, 2.6, 0.5, [[("SHARE OF VOICE", 9, BLUE, True)]])
 txt(s, bx, 1.95, 2.6, 1.3, [[("Comfort Keepers alone spends ", 10.5, DARK, False),("~140x", 10.5, BLUE, True),(" more than Virtue this year.", 10.5, DARK, False)]], line_spacing=1.12)
@@ -273,7 +340,8 @@ notes(s,
 # ---- Slide: apply-start rate ----
 s = slide()
 content_header(s, "Conversion performance", "When candidates see Virtue, they act \u2014 conversion runs well above the market")
-img_fit(s, os.path.join(CH, "D_applystart_rate.png"), M, 1.55, 6.3, 3.5, halign='left')
+col_native(s, M+0.1, 1.72, 6.15, 2.82, D_ITEMS, vfmt=lambda v: f"{v:.1f}%")
+txt(s, M, 5.02, 4.5, 0.22, [[("Apply-start rate (%) \u00b7 Jan\u2013May 2026 \u00b7 editable", 7.5, GREY, False)]])
 bx=7.05
 txt(s, bx, 1.62, 2.6, 0.5, [[("THE STANDOUT METRIC", 9, BLUE, True)]])
 txt(s, bx, 1.98, 2.6, 1.1, [[("31%", 30, BLUE, True)]])
@@ -315,28 +383,25 @@ notes(s,
 divider("03", "Candidate demand by location", "Where the candidates are \u2014 and where supply is tightest",
         "If we're going to invest behind the benefit, we should know where to point it. This section maps where the candidates are and where they're hardest to find.")
 
-# ---- Slide: county demand ----
+# ---- Slide: county demand (all 26 counties) ----
 s = slide()
-content_header(s, "Location opportunity", "Demand concentrates in the east \u2014 but the tightest supply is where Virtue can differentiate")
-img_fit(s, os.path.join(CH, "F_county_demand.png"), M, 1.55, 6.3, 3.5, halign='left')
-bx=7.05
-txt(s, bx, 1.62, 2.6, 0.5, [[("READING THE MAP", 9, BLUE, True)]])
-txt(s, bx, 1.96, 2.6, 1.0, [[("Dublin & Cork", 11, DARK, True),(" hold the deepest candidate pools \u2014 scale plays.", 10, DARK, False)]], line_spacing=1.1)
-txt(s, bx, 2.86, 2.6, 1.2, [[("Cork, Donegal, Clare, Sligo", 11, MAGENTA, True),(" show the tightest supply (fewest seekers per job) \u2014 hardest to fill.", 10, DARK, False)]], line_spacing=1.1)
-rect(s, bx, 4.25, 2.6, 0.82, fill=PALE)
-txt(s, bx+0.14, 4.33, 2.35, 0.7, [[("Play: ", 9.5, MAGENTA, True),("lead with the benefit in tight-supply counties where a stronger offer beats a bigger bid.", 9.0, DARK, False)]], line_spacing=1.05)
-footer(s, "Indeed Ireland \u2014 care-role jobseekers, clicks & jobs by county", pg())
+content_header(s, "Location opportunity", "All 26 counties: demand clusters in Dublin & Cork \u2014 supply is tightest in the west & border", headline_size=17)
+txt(s, M, 1.40, CW, 0.3,
+    [[("Scale plays in the deep eastern pools; lead with the benefit where seekers-per-job are lowest (magenta) \u2014 Donegal, Clare, Sligo, Cavan, Roscommon, Cork.", 9.5, GREY, False)]],
+    line_spacing=1.05)
+img_fit(s, os.path.join(CH, "F_county_demand.png"), M, 1.78, CW, 3.4, halign='center', valign='top')
+footer(s, "Indeed Ireland \u2014 care-role jobseekers & jobs by county (26 counties; 'unknown' excluded)", pg())
 notes(s,
- "This shows where the candidates actually are. The big eastern counties - Dublin and Cork - have the deepest pools, so they're natural places to scale. But look at the colour: the magenta counties like Cork, Donegal, Clare and Sligo have the fewest jobseekers per job, meaning they're the hardest to fill. Those are exactly the places where a differentiated offer earns its keep.",
- "Match the tactic to the geography. Use scale in the deep pools, and use the benefit as the wedge in the tight-supply counties where competitors are all fishing in a small pond.",
- "The benefit is most powerful precisely where candidates are scarcest - target it there first.",
- "Which of these counties cause us the most recruitment pain today?")
+ "This is every county, so nothing is hidden. Read it two ways. First, volume - the bar length and the first number show where the candidates are: Dublin is in a league of its own, then Cork, Kildare, Meath and the eastern commuter belt. Those are your scale markets. Second, scarcity - the colour and the 'per job' figure show how tight supply is. The magenta counties have the fewest jobseekers per advertised role: Donegal, Clare, Sligo, Cavan and Roscommon in the west and border, plus Cork despite its size. Those are the hardest to fill, and that's exactly where a differentiated offer like the benefit does the most work.",
+ "Match the tactic to the geography. Use reach and efficiency in the deep eastern pools; use the benefit as the wedge in the tight-supply counties where everyone is fishing in a small pond and a bigger bid alone won't win.",
+ "Volume tells you where to scale; scarcity tells you where the benefit matters most - and the two don't always overlap.",
+ "Which of these counties cause us the most recruitment pain today, and are we investing there in proportion to the difficulty?")
 
 # ======================================================================
 # Section 04 divider
 # ======================================================================
-divider("04", "The differentiation", "A benefit most of the market doesn't offer \u2014 and where the UK shows it's heading",
-        "This is the core of the case: why the maternity and health benefit is a genuine differentiator, not just a nice-to-have, and why now is the moment to lean into it.")
+divider("04", "The benefit & the EVP", "What the maternity and health benefit means to candidates, the EVP it proves, and where the UK shows it's heading",
+        "This is the core of the case: what the maternity and health benefit actually means to the people Virtue wants to hire, how it anchors the wider employer brand, and why now is the moment to lean into it.")
 
 # ---- Slide: benefit gap ----
 s = slide()
@@ -354,6 +419,118 @@ notes(s,
  "Position this as a category move. Most competitors are still competing on near-identical pay and 'supportive team' messaging - Virtue is saying something structurally different.",
  "Virtue is offering something most of the market does not, to exactly the audience that values it most.",
  "Have we confirmed the precise terms - weeks, percentage of salary, eligibility - so we can state them with confidence?")
+
+# ---- Slide: first-in-Ireland recruitment & retention dividend ----
+s = slide()
+content_header(s, "First-mover advantage", "First in Irish private care \u2014 a measurable recruitment and retention dividend")
+# impact chain across the top
+chain = [
+ ("First to offer it", "A claim no Irish private care competitor can currently match", MAGENTA),
+ ("Stand out to scarce candidates", "A genuine differentiator where supply is tightest", PURPLE),
+ ("More & stronger applicants", "Already converting at 31% vs 21% market", BLUE),
+ ("Higher offer acceptance", "Total-reward advantage at the decision point", TEAL),
+ ("Lower early attrition", "Loyalty built before day one \u2014 fewer replacements", DEEP),
+]
+cwm = (CW - 4*0.16) / 5
+for i, (h, b, col) in enumerate(chain):
+    x = M + i*(cwm+0.16); y = 1.62
+    rect(s, x, y, cwm, 1.5, fill=PALE)
+    rect(s, x, y, cwm, 0.1, fill=col)
+    txt(s, x+0.12, y+0.22, cwm-0.24, 0.6, [[(h, 10, col, True)]], line_spacing=0.98)
+    txt(s, x+0.12, y+0.86, cwm-0.24, 0.6, [[(b, 7.8, GREY, False)]], line_spacing=1.05)
+    if i < len(chain)-1:
+        txt(s, x+cwm-0.02, y+0.55, 0.18, 0.4, [[("\u203a", 16, RGBColor(0xB9,0xC1,0xD2), True)]])
+# perspective panels
+py = 3.42
+txt(s, M, py, 4.3, 0.3, [[("WHY IT MATTERS NOW", 9, BLUE, True)]])
+for i, t in enumerate([
+   "Sector turnover ~36% and rising \u2014 every retained hire avoids a costly replacement",
+   "~79% of the care workforce is female and mid-career \u2014 the benefit speaks to the majority",
+   "A 50/50 non-EEA hiring cap limits international supply \u2014 domestic retention is now decisive"]):
+    yy = py+0.34+i*0.42
+    rect(s, M, yy+0.05, 0.07, 0.07, fill=BLUE, shape=MSO_SHAPE.OVAL)
+    txt(s, M+0.2, yy-0.02, 4.1, 0.42, [[(t, 8.9, DARK, False)]], line_spacing=1.02)
+ox = 5.05
+txt(s, ox, py, 4.4, 0.3, [[("THE COMMERCIAL PAYOFF", 9, MAGENTA, True)]])
+for i, t in enumerate([
+   "Replacing a care worker costs ~1\u20133 months' salary \u2014 small retention gains compound fast",
+   "A 5% lift in acceptance and a 5% cut in early attrition together lower true cost-per-hire",
+   "First-mover window is time-limited \u2014 the advantage erodes once competitors copy it"]):
+    yy = py+0.34+i*0.42
+    rect(s, ox, yy+0.05, 0.07, 0.07, fill=MAGENTA, shape=MSO_SHAPE.OVAL)
+    txt(s, ox+0.2, yy-0.02, 4.25, 0.42, [[(t, 8.9, DARK, False)]], line_spacing=1.02)
+footer(s, "BDO/NHI 2025 (turnover); SOLAS (workforce); Indeed conversion data; internal analysis", pg())
+notes(s,
+ "Let's translate 'first in Ireland' into what it actually does for hiring. Being first gives Virtue a claim no competitor can currently match, and that matters most exactly where candidates are scarcest. The chain along the top is the logic: a differentiated offer makes Virtue stand out, which brings more and stronger applicants - and we can already see that in the 31% apply-start rate. That feeds higher offer acceptance because candidates perceive a better total reward, and then lower early attrition because people feel invested in before they even start. The two panels below are the market perspective: why it matters now - turnover near 36%, a mostly female mid-career workforce, and a regulatory cap on international hiring that makes domestic retention decisive - and the commercial payoff, where replacement costs of one to three months' salary mean even small retention gains pay back quickly.",
+ "Frame 'first' as a recruitment and retention asset with a shelf-life, not a bragging right. The value is the head-start, and it decays the moment a competitor matches it.",
+ "Being first turns the benefit into both an attraction magnet and a retention anchor - but the clock is running.",
+ "If we treated this as our single biggest retention lever this year, what would we measure to prove it's working?")
+
+# ---- Slide: why candidates care ----
+s = slide()
+content_header(s, "What it means to candidates", "Candidates don't read benefits \u2014 they scan for signals, and this one lands")
+lx = M
+txt(s, lx, 1.62, 4.1, 0.4, [[("HOW CANDIDATES RESPOND", 9, BLUE, True)]])
+pts = [
+ ("A scroll-stop signal", "A maternity line in the opening paragraph says \u2018this employer thinks about me beyond my shift\u2019 \u2014 in a feed of near-identical care ads."),
+ ("It removes real anxiety", "For a carer in her late 20s\u201330s, salary continuity during maternity addresses one of the most stressful financial moments in adult life."),
+ ("Credibility beats cost", "The emotional credibility this creates is disproportionate to the actual cost of the benefit \u2014 and it is mainstream, not niche."),
+]
+for i, (h, b) in enumerate(pts):
+    y = 2.0 + i*1.02
+    txt(s, lx, y, 4.0, 0.3, [[(h, 12.5, DARK, True)]])
+    txt(s, lx, y+0.30, 4.0, 0.65, [[(b, 9.5, GREY, False)]], line_spacing=1.1)
+rx = 4.95
+txt(s, rx, 1.62, 4.45, 0.4, [[("WHO RESPONDS MOST", 9, BLUE, True)]])
+segs = [
+ ("Healthcare Assistants (female, 25\u201340)", "Primary audience \u2014 planning or have planned families"),
+ ("Return-to-work candidates", "Need proof the family-friendly culture is genuine"),
+ ("Candidates in low-benefit roles", "Comparison-shopping; currently receive no top-up"),
+ ("International healthcare workers", "Want a stable employer with formal benefit structures"),
+ ("Movers from retail / hospitality", "Benefit compares very favourably to their current job"),
+]
+for i, (h, b) in enumerate(segs):
+    y = 1.98 + i*0.625
+    rect(s, rx, y, 4.45, 0.55, fill=PALE)
+    rect(s, rx, y, 0.06, 0.55, fill=A11Y)
+    txt(s, rx+0.18, y+0.07, 4.2, 0.25, [[(h, 9.8, DEEP, True)]])
+    txt(s, rx+0.18, y+0.30, 4.2, 0.22, [[(b, 8.5, GREY, False)]])
+footer(s, "SOLAS care workforce profile (~79% female); candidate-behaviour analysis; internal segmentation", pg())
+notes(s,
+ "Two things leadership should take from this. First, how candidates behave: people don't read a benefits list, they scan for a signal. A maternity line near the top of an ad is a scroll-stop in a feed where every ad looks the same, and for the typical candidate - a woman in her late twenties or thirties - it speaks to a genuine financial worry. The emotional pull is far bigger than the cost. Second, who responds: this isn't niche. From front-line HCAs to returners, to people coming from retail and hospitality, the benefit is relevant to the majority of Virtue's pipeline.",
+ "Reframe the benefit from 'a perk we offer' to 'a signal that changes who applies'. It speaks to the dominant candidate profile, not a minority.",
+ "This benefit is mainstream to Virtue's audience - it should be front and centre, not a line at the bottom of the ad.",
+ "Do our current ads put the benefit where candidates actually look - the first paragraph - or is it buried in a list?")
+
+# ---- Slide: EVP pillars ----
+s = slide()
+content_header(s, "Employer value proposition", "The benefit is proof of a bigger promise \u2014 five EVP pillars, one consistent story")
+pillars = [
+ ("We care for you", "Maternity top-up, health insurance, wellbeing support", MAGENTA, True),
+ ("We're with you long-term", "Career development, progression and stability", BLUE, False),
+ ("We respect your life", "Family-friendly, flexible, supportive culture", TEAL, False),
+ ("We're proud of our work", "Quality, values-led care for residents", PURPLE, False),
+ ("You belong here", "Inclusive, team-oriented and welcoming", ORANGE, False),
+]
+pw = (CW - 4*0.2) / 5
+for i, (h, b, col, proof) in enumerate(pillars):
+    x = M + i*(pw+0.2); y = 1.66
+    rect(s, x, y, pw, 2.18, fill=PALE)
+    rect(s, x, y, pw, 0.12, fill=col)
+    txt(s, x+0.13, y+0.30, pw-0.26, 0.85, [[(h, 11.5, col, True)]], line_spacing=1.0)
+    txt(s, x+0.13, y+1.15, pw-0.26, 0.85, [[(b, 8.8, DARK, False)]], line_spacing=1.1)
+    if proof:
+        txt(s, x+0.13, y+1.86, pw-0.26, 0.28, [[("\u25b2 the benefit lives here", 7.3, MAGENTA, True)]])
+rect(s, M, 4.12, CW, 0.95, fill=NAVY)
+txt(s, M+0.28, 4.2, CW-0.56, 0.8,
+    [[("\u201cAt Virtue, caring is not just what we do for our residents. It is what we do for each other \u2014 we invest in your health, your family and your future, because when you're supported, the people in our care are too.\u201d", 11.5, WHITE, False)]],
+    line_spacing=1.12, anchor=MSO_ANCHOR.MIDDLE)
+footer(s, "Virtue EVP framework \u2014 internal analysis", pg())
+notes(s,
+ "The benefit is most powerful when it's the proof point for a bigger promise, not a stand-alone perk. We'd anchor Virtue's employer brand on five pillars - we care for you, we're with you long-term, we respect your life outside work, we're proud of our work, and you belong here. The maternity and health benefit is the tangible proof of the first pillar, and it makes all five more credible. The line along the bottom is the core candidate promise we'd lead with everywhere.",
+ "The message to land is consistency: every channel, from a job ad to the offer letter, should tell one version of this story, with the benefit as proof rather than a bullet.",
+ "Lead with the human promise and use the benefit as the proof - 'we invest in your health, your family and your future'.",
+ "Does our messaging today tell one consistent story, or does each channel say something slightly different?")
 
 # ---- Slide: UK benchmark table ----
 s = slide()
@@ -395,6 +572,56 @@ notes(s,
  "What's standard in the UK today is where Ireland is going - Virtue can own that position before competitors arrive.",
  "Which Irish competitor do you think is most likely to copy this, and how fast?")
 
+# ======================================================================
+# Section 05 divider \u2014 Getting it to candidates
+# ======================================================================
+divider("05", "Getting it to candidates", "Make the benefit visible and consistent at every step \u2014 from first impression to offer",
+        "Knowing the benefit works isn't enough - it has to reach candidates consistently. This section is the practical activation: where the message shows up, on which Indeed surface, and what we measure.")
+
+# ---- Slide: candidate journey map ----
+s = slide()
+content_header(s, "Candidate journey", "One message, every touchpoint \u2014 mapped to the Indeed surface that carries it")
+jrows = [
+ ("Stage", "What Virtue says", "Indeed / Glassdoor surface", "Success metric"),
+ ("Awareness", "\u2018Benefits most Irish care employers don't offer\u2019", "Employer Branded Ads, social", "Brand search lift"),
+ ("Job search", "Benefit in the headline & first paragraph", "Sponsored & Premium Jobs", "Click-through, apply rate"),
+ ("Consideration", "Employee stories + EBH proof points", "EBH, Company Page, Glassdoor", "Time on page"),
+ ("Application", "Reinforce benefit; frictionless apply", "Indeed Apply", "Completion rate"),
+ ("Interview", "Recruiter talk track: specific terms & stories", "Interview, Hiring Events", "Interview-to-offer"),
+ ("Offer", "Restate the benefit as total reward", "Offer letter, recruiter call", "Offer acceptance"),
+ ("Onboard & advocacy", "Reinforce; encourage honest reviews", "Onboarding, Glassdoor", "90-day retention, reviews"),
+]
+tx, ty = M, 1.5; tw = CW
+jcolw = [1.55, 3.15, 2.4, 1.8]
+rh = 0.375
+for ri, row in enumerate(jrows):
+    y = ty + ri*rh
+    if ri == 0:
+        rect(s, tx, y, tw, rh, fill=BLUE)
+    elif ri % 2 == 0:
+        rect(s, tx, y, tw, rh, fill=PALE)
+    cx = tx
+    for ci, cell in enumerate(row):
+        colr = WHITE if ri == 0 else DARK
+        bold = ri == 0 or ci == 0
+        txt(s, cx+0.12, y+0.03, jcolw[ci]-0.18, rh-0.04,
+            [[(cell, 8.6 if ri == 0 else 8.7, (BLUE if (ci == 0 and ri) else colr), bold)]],
+            anchor=MSO_ANCHOR.MIDDLE, line_spacing=0.98)
+        cx += jcolw[ci]
+rect(s, tx, ty, tw, rh*len(jrows), line=LGREY, line_w=0.75)
+by = ty + rh*len(jrows) + 0.09
+rect(s, tx, by, tw, 0.4, fill=NAVY)
+txt(s, tx+0.16, by+0.03, tw-0.3, 0.34,
+    [[("Recommended opening line:  ", 8.8, A11Y, True),
+      ("\u201cVirtue offers paid maternity leave top-up and health insurance \u2014 because caring for our team matters as much as caring for our residents.\u201d", 8.8, WHITE, False)]],
+    anchor=MSO_ANCHOR.MIDDLE)
+footer(s, "Candidate journey messaging map across Indeed & Glassdoor surfaces \u2014 internal analysis", pg())
+notes(s,
+ "This is the how-to. Reading across the journey: in awareness we use brand ads to plant the message; in job search the benefit sits in the headline and first paragraph of Sponsored and Premium jobs; in consideration the EBH and employee stories prove it's real; through application, interview and offer we keep restating it - including in the offer letter as part of total reward; and after hire we reinforce it and invite honest reviews. Each stage has an owner surface and a metric, so we can see where it's working and where it leaks. The line at the bottom is the recommended opening line for ads.",
+ "The single biggest failure mode is inconsistency - the benefit in the ad but missing from the interview or offer. This map is the standard that prevents that.",
+ "Consistency is the whole game: the same proof, on every surface, measured at every stage.",
+ "If we audited our candidate journey today, where would the benefit message disappear?")
+
 # ---- Slide: marginal gains ----
 s = slide()
 content_header(s, "The commercial case", "Small gains at each funnel stage compound into a material return")
@@ -413,9 +640,9 @@ notes(s,
  "What's the single funnel metric you'd most want to move first - applications, acceptance, or early retention?")
 
 # ======================================================================
-# Section 05 divider
+# Section 06 divider
 # ======================================================================
-divider("05", "Risks & recommended actions", "Protect the advantage, then activate it",
+divider("06", "Risks & recommended actions", "Protect the advantage, then activate it",
         "Finally, what could go wrong, and what we'd actually do about it - a clear, sequenced plan the room can say yes to.")
 
 # ---- Slide: risks & opportunities ----
